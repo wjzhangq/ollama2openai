@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"ollama2openai/config"
 	"ollama2openai/middleware"
+	"ollama2openai/ollama"
 	"ollama2openai/router"
 )
 
@@ -27,6 +30,11 @@ func main() {
 
 	log.Printf("Starting Ollama2OpenAI Proxy on %s", cfg.GetAddress())
 	log.Printf("Ollama URL: %s", cfg.OllamaURL)
+
+	// Verify Ollama connection and print models
+	if err := verifyOllamaConnection(cfg.OllamaURL); err != nil {
+		log.Fatalf("Ollama connection failed: %v", err)
+	}
 
 	// Create a custom ServeMux to handle routes
 	mux := http.NewServeMux()
@@ -63,4 +71,29 @@ func main() {
 	}
 
 	fmt.Println("Server exited gracefully")
+}
+
+// verifyOllamaConnection checks if Ollama is running and prints available models
+func verifyOllamaConnection(ollamaURL string) error {
+	log.Printf("Verifying Ollama connection...")
+
+	client := ollama.NewClient(ollamaURL, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := client.Tags(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot connect to Ollama at %s: %w", ollamaURL, err)
+	}
+
+	if len(resp.Models) == 0 {
+		log.Printf("Warning: No models found in Ollama")
+	} else {
+		log.Printf("Ollama is connected. Available models:")
+		for _, m := range resp.Models {
+			log.Printf("  - %s", m.Name)
+		}
+	}
+
+	return nil
 }
