@@ -1,0 +1,21 @@
+# Ollama to OpenAI Proxy Configuration
+
+# HTTP Server
+host: "0.0.0.0"
+port: 8080
+
+# Ollama Server
+ollama_url: "http://localhost:11434"
+
+# API Keys (key -> alias mapping)
+# The alias is used for usage statistics tracking
+api_keys:
+  sk-1234567890: "user1"
+  sk-0987654321: "user2"
+  sk-default-key: "default"
+
+# Request timeout (seconds)
+timeout: 300
+
+# Log level: debug, info, warn, error
+log_level: "info"
