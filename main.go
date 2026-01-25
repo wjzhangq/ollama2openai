@@ -39,8 +39,9 @@ func main() {
 	// Create a custom ServeMux to handle routes
 	mux := http.NewServeMux()
 
-	// Setup routes
-	router.SetupRoutes(mux, cfg)
+	// Setup routes with new Router struct
+	rt := router.NewRouter(cfg)
+	rt.SetupRoutes(mux)
 
 	// Create server
 	server := &http.Server{

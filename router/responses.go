@@ -39,7 +39,7 @@ func ResponseHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 		req.Model = defaultModel
 	}
 
-	alias := getAliasFromRequest(r)
+	alias := getAliasFromRequest(r, cfg)
 
 	// For now, convert Response API request to chat completion
 	// This is a simplified implementation

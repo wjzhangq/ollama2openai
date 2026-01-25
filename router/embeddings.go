@@ -38,7 +38,7 @@ func EmbeddingHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config
 		req.Model = "nomic-embed-text"
 	}
 
-	alias := getAliasFromRequest(r)
+	alias := getAliasFromRequest(r, cfg)
 
 	// Handle both string and array inputs
 	inputs := parseEmbeddingInput(req.Input)

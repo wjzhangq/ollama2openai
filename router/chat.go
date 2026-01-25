@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"ollama2openai/config"
 	"ollama2openai/middleware"
 	"ollama2openai/openai"
@@ -54,7 +55,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cli
 	defer cancel()
 
 	// Get alias for usage tracking
-	alias := getAliasFromRequest(r)
+	alias := getAliasFromRequest(r, cfg)
 
 	if req.Stream {
 		handleStreamingChat(ctx, w, cfg, client, &req, ollamaReq, alias)
@@ -80,20 +81,22 @@ func handleStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config
 	created := time.Now().Unix()
 	chunkID := fmt.Sprintf("chatcmpl-%s", generateID())
 
+	// Accumulate all content for token counting
+	var fullContent strings.Builder
+
 	for {
 		resp, err := stream.ReadResponse()
 		if err != nil {
 			break
 		}
 
+		// Accumulate content
+		if resp.Message.Content != "" {
+			fullContent.WriteString(resp.Message.Content)
+		}
+
 		// Convert Ollama response to OpenAI format
 		chunk := convertToStreamChunk(&resp, req.Model, chunkID, created)
-
-		// Record completion tokens as they come in
-		if resp.Message.Content != "" {
-			completionTokens := tokenizer.EstimateTokenCount(resp.Message.Content)
-			middleware.GetGlobalStats().RecordCompletion(alias, 0, int64(completionTokens))
-		}
 
 		// Send SSE format
 		data, _ := json.Marshal(chunk)
@@ -103,6 +106,11 @@ func handleStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config
 			break
 		}
 	}
+
+	// Record usage once at the end with accumulated content
+	promptTokens := estimatePromptTokens(req)
+	completionTokens := tokenizer.EstimateTokenCount(fullContent.String())
+	middleware.GetGlobalStats().RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
 
 	// Send [DONE]
 	fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -285,17 +293,5 @@ func estimatePromptTokens(req *openai.ChatCompletionRequest) int {
 }
 
 func generateID() string {
-	// Simple ID generation - in production use a better method
-	return randomString(29)
-}
-
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func randomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-		time.Sleep(time.Nanosecond)
-	}
-	return string(b)
+	return uuid.New().String()
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"ollama2openai/config"
 	"ollama2openai/openai"
@@ -125,12 +126,17 @@ func trimLeadingSlash(s string) string {
 }
 
 func parseTimestamp(s string) int64 {
-	// Try to parse as Unix timestamp first
-	// This is a simplified implementation
-	if len(s) > 0 {
-		// Ollama returns RFC3339 format, parse it
-		// For now, return current time as fallback
-		return 0
+	// Parse RFC3339 format timestamp from Ollama
+	if s == "" {
+		return time.Now().Unix()
 	}
-	return 0
+
+	// Try to parse as RFC3339
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		// If parsing fails, return current time
+		return time.Now().Unix()
+	}
+
+	return t.Unix()
 }
