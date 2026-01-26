@@ -6,12 +6,13 @@ import (
 
 	"ollama2openai/config"
 	"ollama2openai/middleware"
+	"ollama2openai/pkg/errors"
 )
 
 // UsageHandler handles usage statistics requests
 func UsageHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
@@ -44,7 +45,7 @@ func UsageHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 // HealthHandler handles health check requests
 func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 

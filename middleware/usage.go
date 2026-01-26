@@ -88,3 +88,11 @@ func WithUsage(handler http.Handler) http.Handler {
 func GetGlobalStats() *UsageStats {
 	return globalStats
 }
+
+// Reset resets all usage statistics
+func (s *UsageStats) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usage = make(map[string]*UsageRecord)
+	s.lastReset = time.Now()
+}

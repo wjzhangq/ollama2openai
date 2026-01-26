@@ -13,6 +13,7 @@ import (
 	"ollama2openai/config"
 	"ollama2openai/middleware"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/logger"
 	"ollama2openai/router"
 )
 
@@ -31,22 +32,37 @@ func main() {
 	log.Printf("Starting Ollama2OpenAI Proxy on %s", cfg.GetAddress())
 	log.Printf("Ollama URL: %s", cfg.OllamaURL)
 
+	// Initialize logger
+	logLevel := logger.ParseLevel(cfg.LogLevel)
+	appLogger := logger.NewStdLogger(logLevel)
+	appLogger.Info("Logger initialized", logger.String("level", cfg.LogLevel))
+
 	// Verify Ollama connection and print models
 	if err := verifyOllamaConnection(cfg.OllamaURL); err != nil {
 		log.Fatalf("Ollama connection failed: %v", err)
 	}
 
+	// Create dependencies
+	ollamaClient := ollama.NewClient(cfg.OllamaURL, cfg.GetTimeout())
+	usageTracker := middleware.NewUsageStats()
+
 	// Create a custom ServeMux to handle routes
 	mux := http.NewServeMux()
 
-	// Setup routes with new Router struct
-	rt := router.NewRouter(cfg)
+	// Setup routes with dependency injection
+	rt := router.NewRouter(cfg, ollamaClient, usageTracker, appLogger)
 	rt.SetupRoutes(mux)
 
 	// Create server
 	server := &http.Server{
-		Addr:         cfg.GetAddress(),
-		Handler:      middleware.WithLogging(middleware.WithAuth(mux, cfg)),
+		Addr: cfg.GetAddress(),
+		Handler: middleware.Recovery(appLogger)(
+			middleware.RequestID(
+				middleware.LoggingMiddleware(appLogger)(
+					middleware.WithAuth(mux, cfg),
+				),
+			),
+		),
 		ReadTimeout:  cfg.GetTimeout(),
 		WriteTimeout: cfg.GetTimeout(),
 	}

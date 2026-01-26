@@ -9,12 +9,13 @@ import (
 	"ollama2openai/config"
 	"ollama2openai/openai"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/errors"
 )
 
 // ModelsHandler handles list models requests
-func ModelsHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client *ollama.Client) {
+func ModelsHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client ollama.ClientInterface) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
@@ -22,7 +23,7 @@ func ModelsHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, c
 
 	resp, err := client.Tags(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get models: %v", err))
+		writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Failed to get models: %v", err)))
 		return
 	}
 
@@ -49,9 +50,9 @@ func ModelsHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, c
 }
 
 // ModelHandler handles get model details requests
-func ModelHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client *ollama.Client) {
+func ModelHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client ollama.ClientInterface) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
@@ -59,7 +60,7 @@ func ModelHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cl
 	// Path format: /v1/models/{model}
 	parts := splitPath(r.URL.Path)
 	if len(parts) < 2 {
-		writeError(w, http.StatusNotFound, "Model not found")
+		writeError(w, errors.ErrModelNotFound)
 		return
 	}
 
@@ -69,7 +70,7 @@ func ModelHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cl
 
 	resp, err := client.Tags(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get models: %v", err))
+		writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Failed to get models: %v", err)))
 		return
 	}
 
@@ -88,7 +89,7 @@ func ModelHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cl
 		}
 	}
 
-	writeError(w, http.StatusNotFound, "Model not found")
+	writeError(w, errors.ErrModelNotFound)
 }
 
 func splitPath(path string) []string {

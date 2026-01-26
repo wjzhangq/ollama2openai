@@ -14,28 +14,29 @@ import (
 	"ollama2openai/middleware"
 	"ollama2openai/openai"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/errors"
 	"ollama2openai/tokenizer"
 )
 
 const defaultModel = "llama3"
 
 // ChatHandler handles chat completion requests
-func ChatHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client *ollama.Client) {
+func ChatHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client ollama.ClientInterface, usage middleware.UsageTracker) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
 	// Parse request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Failed to read request body")
+		writeError(w, errors.ErrInvalidRequest.WithMessage("Failed to read request body"))
 		return
 	}
 
 	var req openai.ChatCompletionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
+		writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Invalid request body: %v", err)))
 		return
 	}
 
@@ -47,7 +48,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cli
 	// Convert OpenAI request to Ollama format
 	ollamaReq, err := convertChatRequest(&req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to convert request: %v", err))
+		writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Failed to convert request: %v", err)))
 		return
 	}
 
@@ -58,17 +59,17 @@ func ChatHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, cli
 	alias := getAliasFromRequest(r, cfg)
 
 	if req.Stream {
-		handleStreamingChat(ctx, w, cfg, client, &req, ollamaReq, alias)
+		handleStreamingChat(ctx, w, cfg, client, &req, ollamaReq, alias, usage)
 		return
 	}
 
-	handleNonStreamingChat(ctx, w, cfg, client, &req, ollamaReq, alias)
+	handleNonStreamingChat(ctx, w, cfg, client, &req, ollamaReq, alias, usage)
 }
 
-func handleStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config.Config, client *ollama.Client, req *openai.ChatCompletionRequest, ollamaReq *ollama.ChatRequest, alias string) {
+func handleStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config.Config, client ollama.ClientInterface, req *openai.ChatCompletionRequest, ollamaReq *ollama.ChatRequest, alias string, usage middleware.UsageTracker) {
 	stream, err := client.ChatStream(ctx, ollamaReq)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start streaming: %v", err))
+		writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Failed to start streaming: %v", err)))
 		return
 	}
 	defer stream.Close()
@@ -110,16 +111,16 @@ func handleStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config
 	// Record usage once at the end with accumulated content
 	promptTokens := estimatePromptTokens(req)
 	completionTokens := tokenizer.EstimateTokenCount(fullContent.String())
-	middleware.GetGlobalStats().RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
+	usage.RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
 
 	// Send [DONE]
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 }
 
-func handleNonStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config.Config, client *ollama.Client, req *openai.ChatCompletionRequest, ollamaReq *ollama.ChatRequest, alias string) {
+func handleNonStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *config.Config, client ollama.ClientInterface, req *openai.ChatCompletionRequest, ollamaReq *ollama.ChatRequest, alias string, usage middleware.UsageTracker) {
 	resp, err := client.Chat(ctx, ollamaReq)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Ollama error: %v", err))
+		writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Ollama error: %v", err)))
 		return
 	}
 
@@ -130,7 +131,7 @@ func handleNonStreamingChat(ctx context.Context, w http.ResponseWriter, cfg *con
 	completionTokens := tokenizer.EstimateTokenCount(resp.Message.Content)
 
 	// Record usage
-	middleware.GetGlobalStats().RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
+	usage.RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
 
 	// Convert to OpenAI response format
 	openaiResp := convertToChatResponse(resp, req.Model, promptTokens, completionTokens)

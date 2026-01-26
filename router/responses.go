@@ -5,32 +5,33 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"ollama2openai/config"
 	"ollama2openai/middleware"
 	"ollama2openai/openai"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/errors"
 	"ollama2openai/tokenizer"
-	"time"
 )
 
 // ResponseHandler handles Response API requests (simplified implementation)
 // The Response API is a newer OpenAI API that combines chat, tools, and vision
-func ResponseHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client *ollama.Client) {
+func ResponseHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client ollama.ClientInterface, usage middleware.UsageTracker) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Failed to read request body")
+		writeError(w, errors.ErrInvalidRequest.WithMessage("Failed to read request body"))
 		return
 	}
 
 	var req openai.ResponseRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
+		writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Invalid request body: %v", err)))
 		return
 	}
 
@@ -65,23 +66,23 @@ func ResponseHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 		// For streaming, we'll redirect to chat handler logic
 		ollamaReq, err := convertChatRequest(chatReq)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to convert request: %v", err))
+			writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Failed to convert request: %v", err)))
 			return
 		}
-		handleStreamingChat(ctx, w, cfg, client, chatReq, ollamaReq, alias)
+		handleStreamingChat(ctx, w, cfg, client, chatReq, ollamaReq, alias, usage)
 		return
 	}
 
 	// Non-streaming response
 	ollamaReq, err := convertChatRequest(chatReq)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to convert request: %v", err))
+		writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Failed to convert request: %v", err)))
 		return
 	}
 
 	resp, err := client.Chat(ctx, ollamaReq)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Ollama error: %v", err))
+		writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Ollama error: %v", err)))
 		return
 	}
 
@@ -89,7 +90,7 @@ func ResponseHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config,
 	promptTokens := estimatePromptTokens(chatReq)
 	completionTokens := tokenizer.EstimateTokenCount(resp.Message.Content)
 
-	middleware.GetGlobalStats().RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
+	usage.RecordCompletion(alias, int64(promptTokens), int64(completionTokens))
 
 	// Build Response API format
 	response := openai.ResponseResponse{

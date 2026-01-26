@@ -1,25 +1,30 @@
 package router
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 
 	"ollama2openai/config"
+	"ollama2openai/middleware"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/errors"
+	"ollama2openai/pkg/logger"
 )
 
 // Router encapsulates the dependencies for handling requests
 type Router struct {
-	client *ollama.Client
+	client ollama.ClientInterface
 	config *config.Config
+	usage  middleware.UsageTracker
+	logger logger.Logger
 }
 
 // NewRouter creates a new Router instance
-func NewRouter(cfg *config.Config) *Router {
+func NewRouter(cfg *config.Config, client ollama.ClientInterface, usage middleware.UsageTracker, log logger.Logger) *Router {
 	return &Router{
-		client: ollama.NewClient(cfg.OllamaURL, cfg.GetTimeout()),
+		client: client,
 		config: cfg,
+		usage:  usage,
+		logger: log,
 	}
 }
 
@@ -35,11 +40,11 @@ func (rt *Router) SetupRoutes(mux *http.ServeMux) {
 
 	// OpenAI-compatible endpoints
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
-		ChatHandler(w, r, rt.config, rt.client)
+		ChatHandler(w, r, rt.config, rt.client, rt.usage)
 	})
 
 	mux.HandleFunc("/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
-		EmbeddingHandler(w, r, rt.config, rt.client)
+		EmbeddingHandler(w, r, rt.config, rt.client, rt.usage)
 	})
 
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
@@ -51,22 +56,15 @@ func (rt *Router) SetupRoutes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/v1/responses", func(w http.ResponseWriter, r *http.Request) {
-		ResponseHandler(w, r, rt.config, rt.client)
+		ResponseHandler(w, r, rt.config, rt.client, rt.usage)
 	})
 
-	log.Printf("Routes configured successfully")
+	rt.logger.Info("Routes configured successfully")
 }
 
-// writeError writes an error response in OpenAI format
-func writeError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message": message,
-			"type":    "invalid_request_error",
-		},
-	})
+// writeError writes an error response using the unified error package
+func writeError(w http.ResponseWriter, err *errors.APIError) {
+	errors.WriteError(w, err)
 }
 
 // getAliasFromRequest extracts the API key alias from the request

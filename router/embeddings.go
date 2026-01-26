@@ -10,26 +10,27 @@ import (
 	"ollama2openai/middleware"
 	"ollama2openai/openai"
 	"ollama2openai/ollama"
+	"ollama2openai/pkg/errors"
 	"ollama2openai/tokenizer"
 )
 
 // EmbeddingHandler handles embedding requests
-func EmbeddingHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client *ollama.Client) {
+func EmbeddingHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config, client ollama.ClientInterface, usage middleware.UsageTracker) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		writeError(w, errors.ErrMethodNotAllowed)
 		return
 	}
 
 	// Parse request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Failed to read request body")
+		writeError(w, errors.ErrInvalidRequest.WithMessage("Failed to read request body"))
 		return
 	}
 
 	var req openai.EmbeddingRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
+		writeError(w, errors.ErrInvalidRequest.WithMessage(fmt.Sprintf("Invalid request body: %v", err)))
 		return
 	}
 
@@ -56,7 +57,7 @@ func EmbeddingHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config
 
 		resp, err := client.Embedding(ctx, ollamaReq)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Ollama error: %v", err))
+			writeError(w, errors.ErrOllamaConnection.WithMessage(fmt.Sprintf("Ollama error: %v", err)))
 			return
 		}
 
@@ -70,7 +71,7 @@ func EmbeddingHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config
 	}
 
 	// Record usage
-	middleware.GetGlobalStats().RecordEmbedding(alias, int64(totalTokens))
+	usage.RecordEmbedding(alias, int64(totalTokens))
 
 	// Build response
 	response := openai.EmbeddingResponse{
